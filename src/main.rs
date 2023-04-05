@@ -1,4 +1,3 @@
-use std::mem;
 use std::fs::File;
 use std::env;
 use std::io::prelude::*;
