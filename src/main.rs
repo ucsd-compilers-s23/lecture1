@@ -6,18 +6,6 @@ use std::io::prelude::*;
 
 use im::HashMap;
 
-/*
-
-stmt := <expr>
-        (define <name> <expr>)
-
-Implement a REPL where you can do:
-
-> (define x 52)
-> (let ((y (add1 x))) y)
-
-*/
-
 enum Expr {
     Num(i32),
     Add1(Box<Expr>),
