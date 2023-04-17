@@ -66,7 +66,18 @@ fn compile_expr(e: &Expr, si: i32, env: &HashMap<String, i32>, l: &mut i32) -> S
         }
         Expr::Add1(subexpr) => compile_expr(subexpr, si, env, l) + "\nadd rax, 1",
         Expr::Eq(e1, e2) => {
-            format!("mov rax, 1")
+            let e1_instrs = compile_expr(e1, si, env, l);
+            let e2_instrs = compile_expr(e2, si + 1, env, l);
+            let offset = si * 8;
+            format!("
+                {e1_instrs}
+                mov [rsp - {offset}], rax
+                {e2_instrs}
+                cmp rax, [rsp - {offset}]
+                mov rbx, 3
+                mov rax, 1
+                cmove rax, rbx
+            ")
         },
         Expr::If(cond, thn, els) => {
            let end_label = new_label(l, "ifend"); 

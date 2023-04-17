@@ -7,10 +7,10 @@ extern "C" {
     fn our_code_starts_here() -> i64;
 }
 
-fn print(val : i64) {
+fn print_value(val : i64) {
   if val == 3 { println!("true"); }
-  if val == 1 { println!("false"); }
-  if val % 2 == 0 { println!("{}", val >> 1); }
+  else if val == 1 { println!("false"); }
+  else if val % 2 == 0 { println!("{}", val >> 1); }
   else {
     println!("Unknown value: {}", val);
   }
@@ -18,7 +18,7 @@ fn print(val : i64) {
 
 fn main() {
     let i : i64 = unsafe { our_code_starts_here()  };
-    println!("{}", i);
+    print_value(i);
 }
 
 
