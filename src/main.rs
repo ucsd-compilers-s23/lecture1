@@ -8,13 +8,14 @@ use im::HashMap;
 
 enum Expr {
     Num(i32),
-    True, False,
+    True,
+    False,
     Add1(Box<Expr>),
     Plus(Box<Expr>, Box<Expr>),
     Let(String, Box<Expr>, Box<Expr>),
     Id(String),
     Eq(Box<Expr>, Box<Expr>),
-    If(Box<Expr>, Box<Expr>, Box<Expr>)
+    If(Box<Expr>, Box<Expr>, Box<Expr>),
 }
 
 fn parse_expr(s: &Sexp) -> Expr {
@@ -39,9 +40,11 @@ fn parse_expr(s: &Sexp) -> Expr {
                 ),
                 _ => panic!("parse error"),
             },
-            [Sexp::Atom(S(keyword)), cond, thn, els] if keyword == "if" => {
-                Expr::If(Box::new(parse_expr(cond)), Box::new(parse_expr(thn)), Box::new(parse_expr(els)))
-            },
+            [Sexp::Atom(S(keyword)), cond, thn, els] if keyword == "if" => Expr::If(
+                Box::new(parse_expr(cond)),
+                Box::new(parse_expr(thn)),
+                Box::new(parse_expr(els)),
+            ),
 
             _ => panic!("parse error: {}", s),
         },
@@ -49,10 +52,10 @@ fn parse_expr(s: &Sexp) -> Expr {
     }
 }
 
-fn new_label(l : &mut i32, s : &str) -> String {
-  let current = *l;
-  *l += 1;
-  format!("{s}_{current}")
+fn new_label(l: &mut i32, s: &str) -> String {
+    let current = *l;
+    *l += 1;
+    format!("{s}_{current}")
 }
 
 fn compile_expr(e: &Expr, si: i32, env: &HashMap<String, i32>, l: &mut i32) -> String {
@@ -60,6 +63,7 @@ fn compile_expr(e: &Expr, si: i32, env: &HashMap<String, i32>, l: &mut i32) -> S
         Expr::Num(n) => format!("mov rax, {}", *n << 1),
         Expr::True => format!("mov rax, {}", 3),
         Expr::False => format!("mov rax, {}", 1),
+        Expr::Id(s) if s == "input" => format!("mov rax, rdi"),
         Expr::Id(s) => {
             let offset = env.get(s).unwrap() * 8;
             format!("mov rax, [rsp - {offset}]")
@@ -69,23 +73,30 @@ fn compile_expr(e: &Expr, si: i32, env: &HashMap<String, i32>, l: &mut i32) -> S
             let e1_instrs = compile_expr(e1, si, env, l);
             let e2_instrs = compile_expr(e2, si + 1, env, l);
             let offset = si * 8;
-            format!("
+            format!(
+                "
                 {e1_instrs}
                 mov [rsp - {offset}], rax
                 {e2_instrs}
+                mov rbx, rax
+                xor rbx, [rsp - {offset}]
+                test rbx, 1
+                jne throw_error
                 cmp rax, [rsp - {offset}]
                 mov rbx, 3
                 mov rax, 1
                 cmove rax, rbx
-            ")
-        },
+            "
+            )
+        }
         Expr::If(cond, thn, els) => {
-           let end_label = new_label(l, "ifend"); 
-           let else_label = new_label(l, "ifelse"); 
-           let cond_instrs = compile_expr(cond, si, env, l);
-           let thn_instrs = compile_expr(thn, si, env, l);
-           let els_instrs = compile_expr(els, si, env, l);
-           format!("
+            let end_label = new_label(l, "ifend");
+            let else_label = new_label(l, "ifelse");
+            let cond_instrs = compile_expr(cond, si, env, l);
+            let thn_instrs = compile_expr(thn, si, env, l);
+            let els_instrs = compile_expr(els, si, env, l);
+            format!(
+                "
               {cond_instrs}
               cmp rax, 1
               je {else_label}
@@ -93,7 +104,8 @@ fn compile_expr(e: &Expr, si: i32, env: &HashMap<String, i32>, l: &mut i32) -> S
               {else_label}:
                 {els_instrs}
               {end_label}:
-           ")
+           "
+            )
         }
         Expr::Plus(e1, e2) => {
             let e1_instrs = compile_expr(e1, si, env, l);
@@ -102,8 +114,12 @@ fn compile_expr(e: &Expr, si: i32, env: &HashMap<String, i32>, l: &mut i32) -> S
             format!(
                 "
               {e1_instrs}
+              test rax, 1
+              jnz error
               mov [rsp - {stack_offset}], rax
               {e2_instrs}
+              test rax, 1
+              jnz error
               add rax, [rsp - {stack_offset}]
           "
             )
@@ -140,6 +156,12 @@ fn main() -> std::io::Result<()> {
         "
 section .text
 global our_code_starts_here
+extern error
+throw_error:
+  mov rdi, rbx
+  push rsp
+  call error
+  ret
 our_code_starts_here:
   {}
   ret
