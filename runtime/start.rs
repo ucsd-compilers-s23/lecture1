@@ -27,7 +27,7 @@ fn print_value(val : i64) {
 
 fn parse_arg(v : &Vec<String>) -> i64 {
   if v.len() < 2 { return 1 }
-  let s = &v[0];
+  let s = &v[1];
   if s == "true" { 3 }
   else if s == "false" { 1 }
   else { s.parse::<i64>().unwrap() << 1 }
