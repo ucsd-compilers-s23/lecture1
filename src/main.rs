@@ -74,73 +74,130 @@ fn new_label(l: &mut i32, s: &str) -> String {
     format!("{s}_{current}")
 }
 
-#[derive(Clone)]
-enum Loc {
-    Reg(String),
-    Stack(i32)
+#[derive(Clone,Copy)]
+enum REG {
+  RAX,
+  RSP,
+  RDI,
 }
 
-use Loc::*;
+#[derive(Clone,Copy)]
+enum Loc {
+    LReg(REG),
+    LStack(i32)
+}
 
-fn compile_expr(e: &Expr, si: i32, env: &HashMap<String, Loc>, brake: &String, l: &mut i32) -> String {
+
+#[derive(Clone,Copy)]
+enum Val {
+    VReg(REG),
+    VStack(i32),
+    VImm(i32)
+}
+
+use REG::*;
+use Loc::*;
+use Val::*;
+
+struct Context<'a> {
+    si: i32,
+    env: &'a HashMap<String, Loc>,
+    brake: &'a str,
+    target: Loc
+}
+
+fn reg_to_str(r : &REG) -> String {
+    match r {
+        RAX => String::from("rax"),
+        RSP => String::from("rsp"),
+        RDI => String::from("rdi")
+    }
+}
+
+fn val_to_str(v : &Val) -> String {
+    match v {
+        VStack(n) => {
+            let offset = n * 8;
+            format!("qword [rsp - {offset}]")
+        }
+        VReg(r) => reg_to_str(r),
+        VImm(n) => format!("{}", n)
+    }
+}
+
+fn mov_target(dest : &Loc, source : &Val) -> String {
+    match (dest, source) {
+        (LStack(n), VStack(_m)) => {
+            format!("
+              mov rax, {}
+              mov {}, rax
+            ",
+            val_to_str(source), val_to_str(&VStack(*n)))
+        },
+        (LReg(r1), _) => format!("mov {}, {}", reg_to_str(r1), val_to_str(source)),
+        (LStack(n), _) => format!("mov {}, {}", val_to_str(&VStack(*n)), val_to_str(source))
+    }
+}
+
+fn compile_expr(e: &Expr, c : &Context, l: &mut i32) -> String {
     match e {
-        Expr::Num(n) => format!("mov rax, {}", *n << 1),
-        Expr::True => format!("mov rax, {}", 3),
-        Expr::False => format!("mov rax, {}", 1),
-        Expr::Id(s) if s == "input" => format!("mov rax, rdi"),
+        Expr::Num(n) => mov_target(&c.target, &VImm(*n << 1)),
+        Expr::True => mov_target(&c.target, &VImm(3)),
+        Expr::False => mov_target(&c.target, &VImm(1)),
+        Expr::Id(s) if s == "input" => mov_target(&c.target, &VReg(RDI)),
         Expr::Id(s) => {
-            match env.get(s).unwrap() {
-                Reg(reg) => format!("mov rax, {reg}"),
-                Stack(offset) => {
-                    let offset = offset * 8;
-                    format!("mov rax, [rsp - {offset}]")
+            match c.env.get(s).unwrap() {
+                LReg(reg) => format!("mov rax, {}", reg_to_str(reg)),
+                LStack(offset) => {
+                    mov_target(&c.target, &VStack(*offset))
                 }
             }
         }
         Expr::Set(name, val) => {
-            let save = match env.get(name).unwrap() {
-                Reg(reg) => format!("mov {reg}, rax"),
-                Stack(offset) => {
-                    let offset = offset * 8;
-                    format!("mov [rsp - {offset}], rax")
-                }
-            };
-            let val_is = compile_expr(val, si, env, brake, l);
+            let target = c.env.get(name).unwrap();
+            let nctxt = Context { target: LReg(RAX), ..*c };
+            let val_is = compile_expr(val, &nctxt, l);
+            let save = mov_target(&target, &VReg(RAX));
             format!("
               {val_is}
               {save}
               ")
         }
-        Expr::Add1(subexpr) => compile_expr(subexpr, si, env, brake, l) + "\nadd rax, 1",
+        Expr::Add1(subexpr) => compile_expr(subexpr, c, l) + "\nadd rax, 1",
         Expr::Break(e) => {
-            let e_is = compile_expr(e, si, env, brake, l);
+            let nctxt = Context { target: LReg(RAX), ..*c };
+            let e_is = compile_expr(e, &nctxt, l);
             format!("
               {e_is}
-              jmp {brake}
-            ")
+              jmp {}
+            ", c.brake)
         }
         Expr::Loop(e) => {
             let startloop = new_label(l, "loop");
             let endloop = new_label(l, "loopend");
-            let e_is = compile_expr(e, si, env, &endloop, l);
+            let e_is = compile_expr(e, &Context { brake: &endloop, ..*c }, l);
+            let save = mov_target(&c.target, &VReg(RAX));
             format!("
               {startloop}:
               {e_is}
               jmp {startloop}
               {endloop}:
+              {save}
             ")
         }
         Expr::Block(es) => {
-            es.into_iter().map(|e| { compile_expr(e, si, env, brake, l) }).collect::<Vec<String>>().join("\n")
+            // could consider writing all but last into RAX or something
+            es.into_iter().map(|e| { compile_expr(e, c, l) }).collect::<Vec<String>>().join("\n")
         }
         Expr::Eq(e1, e2) => {
-            let e1_instrs = compile_expr(e1, si, env, brake, l);
-            let e2_instrs = compile_expr(e2, si + 1, env, brake, l);
-            let offset = si * 8;
+            let save_e1_ctxt = Context { target: LStack(c.si), ..*c };
+            let e1_instrs = compile_expr(e1, &save_e1_ctxt, l);
+            let e2_ctxt = Context { si: c.si + 1, target: LReg(RAX), ..*c };
+            let e2_instrs = compile_expr(e2, &e2_ctxt, l);
+            let offset = c.si * 8;
             format!(
                 "
                 {e1_instrs}
-                mov [rsp - {offset}], rax
                 {e2_instrs}
                 mov rbx, rax
                 xor rbx, [rsp - {offset}]
@@ -156,9 +213,10 @@ fn compile_expr(e: &Expr, si: i32, env: &HashMap<String, Loc>, brake: &String, l
         Expr::If(cond, thn, els) => {
             let end_label = new_label(l, "ifend");
             let else_label = new_label(l, "ifelse");
-            let cond_instrs = compile_expr(cond, si, env, brake, l);
-            let thn_instrs = compile_expr(thn, si, env, brake, l);
-            let els_instrs = compile_expr(els, si, env, brake, l);
+            let cond_ctxt = Context { target: LReg(RAX), ..*c };
+            let cond_instrs = compile_expr(cond, &cond_ctxt, l);
+            let thn_instrs = compile_expr(thn, c, l); // note original context, so store to wherever caller wants
+            let els_instrs = compile_expr(els, c, l);
             format!(
                 "
               {cond_instrs}
@@ -172,9 +230,11 @@ fn compile_expr(e: &Expr, si: i32, env: &HashMap<String, Loc>, brake: &String, l
             )
         }
         Expr::Plus(e1, e2) => {
-            let e1_instrs = compile_expr(e1, si, env, brake, l);
-            let e2_instrs = compile_expr(e2, si + 1, env, brake, l);
-            let stack_offset = si * 8;
+            let save_e1_ctxt = Context { target: LStack(c.si), ..*c };
+            let e1_instrs = compile_expr(e1, &save_e1_ctxt, l);
+            let e2_ctxt = Context { si: c.si + 1, target: LReg(RAX), ..*c };
+            let e2_instrs = compile_expr(e2, &e2_ctxt, l);
+            let stack_offset = c.si * 8;
             format!(
                 "
               {e1_instrs}
@@ -189,18 +249,17 @@ fn compile_expr(e: &Expr, si: i32, env: &HashMap<String, Loc>, brake: &String, l
             )
         }
         Expr::Let(name, val, body) => {
-            let val_is = compile_expr(val, si, env, brake, l);
-            let body_is = compile_expr(body, si + 1, &env.update(name.to_string(), Stack(si)), brake, l);
-            let offset = si * 8;
+            let val_ctxt = Context { target: LStack(c.si), ..*c };
+            let val_is = compile_expr(val, &val_ctxt, l);
+            let body_is = compile_expr(body, &Context { si: c.si + 1, env: &c.env.update(name.to_string(), LStack(c.si)), ..*c}, l);
+            let offset = c.si * 8;
             format!(
                 "
               {val_is}
-              mov [rsp - {offset}], rax
               {body_is}
           "
             )
         }
-
     }
 }
 
@@ -216,7 +275,8 @@ fn main() -> std::io::Result<()> {
 
     let expr = parse_expr(&parse(&in_contents).unwrap());
     let mut labels = 0;
-    let result = compile_expr(&expr, 2, &HashMap::new(), &String::from(""), &mut labels);
+    let context = Context { si: 2, env: &HashMap::new(), brake: "", target: LReg(RAX) };
+    let result = compile_expr(&expr, &context, &mut labels);
     let asm_program = format!(
         "
 section .text
