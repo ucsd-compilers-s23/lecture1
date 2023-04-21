@@ -74,37 +74,20 @@ fn new_label(l: &mut i32, s: &str) -> String {
     format!("{s}_{current}")
 }
 
-#[derive(Clone)]
-enum Loc {
-    Reg(String),
-    Stack(i32)
-}
-
-use Loc::*;
-
-fn compile_expr(e: &Expr, si: i32, env: &HashMap<String, Loc>, brake: &String, l: &mut i32) -> String {
+fn compile_expr(e: &Expr, si: i32, env: &HashMap<String, i32>, brake: &String, l: &mut i32) -> String {
     match e {
         Expr::Num(n) => format!("mov rax, {}", *n << 1),
         Expr::True => format!("mov rax, {}", 3),
         Expr::False => format!("mov rax, {}", 1),
         Expr::Id(s) if s == "input" => format!("mov rax, rdi"),
         Expr::Id(s) => {
-            match env.get(s).unwrap() {
-                Reg(reg) => format!("mov rax, {reg}"),
-                Stack(offset) => {
-                    let offset = offset * 8;
-                    format!("mov rax, [rsp - {offset}]")
-                }
-            }
+            let offset = env.get(s).unwrap() * 8;
+            format!("mov rax, [rsp - {offset}]")
         }
         Expr::Set(name, val) => {
-            let save = match env.get(name).unwrap() {
-                Reg(reg) => format!("mov {reg}, rax"),
-                Stack(offset) => {
-                    let offset = offset * 8;
-                    format!("mov [rsp - {offset}], rax")
-                }
-            };
+            let offset = env.get(name).unwrap() * 8;
+
+            let save = format!("mov [rsp - {offset}], rax");
             let val_is = compile_expr(val, si, env, brake, l);
             format!("
               {val_is}
@@ -190,7 +173,7 @@ fn compile_expr(e: &Expr, si: i32, env: &HashMap<String, Loc>, brake: &String, l
         }
         Expr::Let(name, val, body) => {
             let val_is = compile_expr(val, si, env, brake, l);
-            let body_is = compile_expr(body, si + 1, &env.update(name.to_string(), Stack(si)), brake, l);
+            let body_is = compile_expr(body, si + 1, &env.update(name.to_string(), si), brake, l);
             let offset = si * 8;
             format!(
                 "
