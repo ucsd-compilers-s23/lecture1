@@ -19,6 +19,7 @@ enum Expr {
     Loop(Box<Expr>),
     Block(Vec<Expr>),
     Break(Box<Expr>),
+    Print(Box<Expr>),
     Set(String, Box<Expr>)
 }
 
@@ -44,6 +45,9 @@ fn parse_expr(s: &Sexp) -> Expr {
             }
             [Sexp::Atom(S(op)), e] if op == "break" => {
                 Expr::Break(Box::new(parse_expr(e)))
+            }
+            [Sexp::Atom(S(op)), e] if op == "print" => {
+                Expr::Print(Box::new(parse_expr(e)))
             }
             [Sexp::Atom(S(op)), e1, e2] if op == "=" => {
                 Expr::Eq(Box::new(parse_expr(e1)), Box::new(parse_expr(e2)))
@@ -83,6 +87,20 @@ fn compile_expr(e: &Expr, si: i32, env: &HashMap<String, i32>, brake: &String, l
         Expr::Id(s) => {
             let offset = env.get(s).unwrap() * 8;
             format!("mov rax, [rsp - {offset}]")
+        }
+        Expr::Print(e) => {
+          let e_is = compile_expr(e, si, env, brake, l);
+          let index = if si % 2 == 1 { si + 1 } else { si };
+          let offset = index * 8;
+          format!("
+            {e_is}
+            mov [rsp - {offset}], rdi
+            sub rsp, {offset}
+            mov rdi, rax
+            call snek_print
+            add rsp, {offset}
+            mov rdi, [rsp - {offset}]
+          ")
         }
         Expr::Set(name, val) => {
             let offset = env.get(name).unwrap() * 8;
@@ -128,6 +146,7 @@ fn compile_expr(e: &Expr, si: i32, env: &HashMap<String, i32>, brake: &String, l
                 mov rbx, rax
                 xor rbx, [rsp - {offset}]
                 test rbx, 1
+                mov rdi, 7
                 jne throw_error
                 cmp rax, [rsp - {offset}]
                 mov rbx, 3
@@ -162,11 +181,13 @@ fn compile_expr(e: &Expr, si: i32, env: &HashMap<String, i32>, brake: &String, l
                 "
               {e1_instrs}
               test rax, 1
-              jnz error
+              mov rdi, 3
+              jnz throw_error
               mov [rsp - {stack_offset}], rax
               {e2_instrs}
               test rax, 1
-              jnz error
+              mov rdi, 3
+              jnz throw_error
               add rax, [rsp - {stack_offset}]
           "
             )
@@ -204,11 +225,11 @@ fn main() -> std::io::Result<()> {
         "
 section .text
 global our_code_starts_here
-extern error
+extern snek_error
+extern snek_print
 throw_error:
-  mov rdi, rbx
   push rsp
-  call error
+  call snek_error
   ret
 our_code_starts_here:
   {}

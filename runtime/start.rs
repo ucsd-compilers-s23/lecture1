@@ -9,20 +9,22 @@ extern "C" {
 }
 
 #[no_mangle]
-#[export_name = "\x01error"]
-pub fn error(errcode : i64) {
+#[export_name = "\x01snek_error"]
+pub fn snek_error(errcode : i64) {
   eprintln!("An error occurred {}", errcode);
   std::process::exit(1);
 }
 
-
-fn print_value(val : i64) {
+#[no_mangle]
+#[export_name = "\x01snek_print"]
+fn snek_print(val : i64) -> i64 {
   if val == 3 { println!("true"); }
   else if val == 1 { println!("false"); }
   else if val % 2 == 0 { println!("{}", val >> 1); }
   else {
     println!("Unknown value: {}", val);
   }
+  return val;
 }
 
 fn parse_arg(v : &Vec<String>) -> i64 {
@@ -38,7 +40,7 @@ fn main() {
     let input = parse_arg(&args);
     
     let i : i64 = unsafe { our_code_starts_here(input) };
-    print_value(i);
+    snek_print(i);
 }
 
 
