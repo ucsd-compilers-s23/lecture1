@@ -5,7 +5,7 @@ extern "C" {
     // it does not add an underscore in front of the name.
     // Courtesy of Max New (https://maxsnew.com/teaching/eecs-483-fa22/hw_adder_assignment.html)
     #[link_name = "\x01our_code_starts_here"]
-    fn our_code_starts_here(input : i64) -> i64;
+    fn our_code_starts_here(input : i64, p1 : i64, p2 : i64, p3 : i64, p4 : i64, p5 : i64, p6 : i64, p7 : i64, p8 : i64) -> i64;
 }
 
 #[no_mangle]
@@ -39,7 +39,7 @@ fn main() {
     let args: Vec<String> = env::args().collect();
     let input = parse_arg(&args);
     
-    let i : i64 = unsafe { our_code_starts_here(input) };
+    let i : i64 = unsafe { our_code_starts_here(input, 9, 10, 11, 12, 13, 14, 15, 16) };
     snek_print(i);
 }
 
