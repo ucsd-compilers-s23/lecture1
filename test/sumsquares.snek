@@ -1,0 +1,4 @@
+(fun (sumsquares a b)
+  (+ a b))
+
+(sumsquares 37 99)
