@@ -246,6 +246,7 @@ fn compile_expr(
               cmp rax, 1
               je {else_label}
                 {thn_instrs}
+                jmp {end_label}
               {else_label}:
                 {els_instrs}
               {end_label}:
@@ -302,16 +303,16 @@ fn compile_expr(
             let arg1_is = compile_expr(arg1, si, env, brake, l);
             let arg2_is = compile_expr(arg2, si + 1, env, brake, l);
             let curr_word = si * 8;
-            let offset = (si * 8) + (3 * 8); // one extra word for rdi saving, two for args
-                                             // With this setup, the current word will be at [rsp+16], which is where arg1 is stored
-                                             // We then want to get rdi at rsp+16, arg2 at rsp+8, and arg1 at rsp, then call
+            let offset = (si * 8) + (2 * 8);
+            // With this setup, the current word will be at [rsp+16], which is where arg1 is stored
+            // We then want to get rdi at [rsp+16], arg2 at [rsp+8], and arg1 at [rsp], then call
             format!(
                 "
                 {arg1_is}
                 mov [rsp-{curr_word}], rax
                 {arg2_is}
                 sub rsp, {offset}
-                mov rbx, [rsp+24]
+                mov rbx, [rsp+16]
                 mov [rsp], rbx
                 mov [rsp+8], rax
                 mov [rsp+16], rdi
