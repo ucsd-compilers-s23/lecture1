@@ -1,0 +1,6 @@
+(fun (sumrec num sofar)
+  (if (= num 0)
+      sofar
+      (sumrec (+ num -1) (+ sofar num))))
+
+(sumrec 3 0)
