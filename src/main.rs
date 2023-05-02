@@ -23,10 +23,13 @@ enum Expr {
     True,
     False,
     Add1(Box<Expr>),
+    Sub1(Box<Expr>),
     Plus(Box<Expr>, Box<Expr>),
+    Minus(Box<Expr>, Box<Expr>),
     Let(String, Box<Expr>, Box<Expr>),
     Id(String),
     Eq(Box<Expr>, Box<Expr>),
+    Lt(Box<Expr>, Box<Expr>),
     If(Box<Expr>, Box<Expr>, Box<Expr>),
     Loop(Box<Expr>),
     Block(Vec<Expr>),
@@ -46,8 +49,12 @@ fn parse_expr(s: &Sexp) -> Expr {
         Sexp::Atom(S(name)) => Expr::Id(name.to_string()),
         Sexp::List(vec) => match &vec[..] {
             [Sexp::Atom(S(op)), e] if op == "add1" => Expr::Add1(Box::new(parse_expr(e))),
+            [Sexp::Atom(S(op)), e] if op == "sub1" => Expr::Sub1(Box::new(parse_expr(e))),
             [Sexp::Atom(S(op)), e1, e2] if op == "+" => {
                 Expr::Plus(Box::new(parse_expr(e1)), Box::new(parse_expr(e2)))
+            }
+            [Sexp::Atom(S(op)), e1, e2] if op == "-" => {
+                Expr::Minus(Box::new(parse_expr(e1)), Box::new(parse_expr(e2)))
             }
             [Sexp::Atom(S(op)), Sexp::Atom(S(name)), e] if op == "set!" => {
                 Expr::Set(name.to_string(), Box::new(parse_expr(e)))
@@ -60,6 +67,9 @@ fn parse_expr(s: &Sexp) -> Expr {
             [Sexp::Atom(S(op)), e] if op == "print" => Expr::Print(Box::new(parse_expr(e))),
             [Sexp::Atom(S(op)), e1, e2] if op == "=" => {
                 Expr::Eq(Box::new(parse_expr(e1)), Box::new(parse_expr(e2)))
+            }
+            [Sexp::Atom(S(op)), e1, e2] if op == "<" => {
+                Expr::Lt(Box::new(parse_expr(e1)), Box::new(parse_expr(e2)))
             }
             [Sexp::Atom(S(keyword)), Sexp::List(vec), body] if keyword == "let" => match &vec[..] {
                 [Sexp::Atom(S(name)), val] => Expr::Let(
@@ -159,17 +169,17 @@ fn compile_expr(
         }
         Expr::Print(e) => {
             let e_is = compile_expr(e, si, env, brake, l);
-            let index = if si % 2 == 1 { si + 1 } else { si };
+            let index = if si % 2 == 1 { si + 2 } else { si + 1 };
             let offset = index * 8;
             format!(
                 "
             {e_is}
-            mov [rsp + {offset}], rbx
             sub rsp, {offset}
-            mov rbx, rax
+            mov [rsp], rdi
+            mov rdi, rax
             call snek_print
+            mov rdi, [rsp]
             add rsp, {offset}
-            mov rbx, [rsp + {offset}]
           "
             )
         }
@@ -185,7 +195,8 @@ fn compile_expr(
               "
             )
         }
-        Expr::Add1(subexpr) => compile_expr(subexpr, si, env, brake, l) + "\nadd rax, 1",
+        Expr::Add1(subexpr) => compile_expr(subexpr, si, env, brake, l) + "\nadd rax, 2",
+        Expr::Sub1(subexpr) => compile_expr(subexpr, si, env, brake, l) + "\nsub rax, 2",
         Expr::Break(e) => {
             let e_is = compile_expr(e, si, env, brake, l);
             format!(
@@ -213,6 +224,27 @@ fn compile_expr(
             .map(|e| compile_expr(e, si, env, brake, l))
             .collect::<Vec<String>>()
             .join("\n"),
+        Expr::Lt(e1, e2) => {
+            let e1_instrs = compile_expr(e1, si, env, brake, l);
+            let e2_instrs = compile_expr(e2, si + 1, env, brake, l);
+            let offset = si * 8;
+            format!(
+                "
+                {e1_instrs}
+                mov [rsp + {offset}], rax
+                {e2_instrs}
+                mov rbx, rax
+                or rbx, [rsp + {offset}]
+                test rbx, 1
+                mov rbx, 7
+                jne throw_error
+                cmp rax, [rsp + {offset}]
+                mov rbx, 3
+                mov rax, 1
+                cmovg rax, rbx
+            "
+            )
+        }
         Expr::Eq(e1, e2) => {
             let e1_instrs = compile_expr(e1, si, env, brake, l);
             let e2_instrs = compile_expr(e2, si + 1, env, brake, l);
@@ -251,6 +283,25 @@ fn compile_expr(
                 {els_instrs}
               {end_label}:
            "
+            )
+        }
+        Expr::Minus(e1, e2) => {
+            let e1_instrs = compile_expr(e1, si, env, brake, l);
+            let e2_instrs = compile_expr(e2, si + 1, env, brake, l);
+            let stack_offset = si * 8;
+            format!(
+                "
+              {e1_instrs}
+              test rax, 1
+              mov rbx, 3
+              jnz throw_error
+              mov [rsp + {stack_offset}], rax
+              {e2_instrs}
+              test rax, 1
+              mov rbx, 3
+              jnz throw_error
+              sub rax, [rsp + {stack_offset}]
+          "
             )
         }
         Expr::Plus(e1, e2) => {
@@ -333,9 +384,12 @@ fn depth(e: &Expr) -> i32 {
         Expr::True => 0,
         Expr::False => 0,
         Expr::Add1(expr) => depth(expr),
+        Expr::Sub1(expr) => depth(expr),
         Expr::Plus(expr1, expr2) => depth(expr1).max(depth(expr2) + 1),
+        Expr::Minus(expr1, expr2) => depth(expr1).max(depth(expr2) + 1),
         Expr::Let(_, expr1, expr2) => depth(expr1).max(depth(expr2) + 1),
         Expr::Id(_) => 0,
+        Expr::Lt(expr1, expr2) => depth(expr1).max(depth(expr2) + 1),
         Expr::Eq(expr1, expr2) => depth(expr1).max(depth(expr2) + 1),
         Expr::If(expr1, expr2, expr3) => depth(expr1).max(depth(expr2)).max(depth(expr3)),
         Expr::Loop(expr) => depth(expr),
@@ -380,8 +434,9 @@ fn compile_definition(d: &Definition, labels: &mut i32) -> String {
                 sub rsp, {offset}
                 {body_is}
                 add rsp, {offset}
-                ret"
-            )
+                ret
+
+            ")
         }
         Fun2(name, arg1, arg2, body) => {
             let depth = depth(body);
@@ -424,6 +479,7 @@ extern snek_error
 extern snek_print
 throw_error:
   push rsp
+  mov rdi, rbx
   call snek_error
   ret
 {}
