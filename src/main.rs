@@ -78,7 +78,7 @@ fn new_label(l: &mut i32, s: &str) -> String {
     format!("{s}_{current}")
 }
 
-fn compile_expr(e: &Expr, si: i32, env: &HashMap<String, i32>, brake: &String, l: &mut i32) -> String {
+fn compile_expr(e: &Expr, si: i32, env: &HashMap<String, i32>, brake: &str, l: &mut i32) -> String {
     match e {
         Expr::Num(n) => format!("mov rax, {}", *n << 1),
         Expr::True => format!("mov rax, {}", 3),
@@ -123,7 +123,7 @@ fn compile_expr(e: &Expr, si: i32, env: &HashMap<String, i32>, brake: &String, l
         Expr::Loop(e) => {
             let startloop = new_label(l, "loop");
             let endloop = new_label(l, "loopend");
-            let e_is = compile_expr(e, si, env, &endloop, l);
+            let e_is = compile_expr(e, si, env, &endloop[..], l);
             format!("
               {startloop}:
               {e_is}
@@ -167,6 +167,7 @@ fn compile_expr(e: &Expr, si: i32, env: &HashMap<String, i32>, brake: &String, l
               cmp rax, 1
               je {else_label}
                 {thn_instrs}
+              jmp {end_label}
               {else_label}:
                 {els_instrs}
               {end_label}:
