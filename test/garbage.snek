@@ -1,0 +1,5 @@
+(let (x (pair 1 2))
+  (let (y (let (tmp (pair 10 20)) (+ (fst tmp) (snd tmp))))
+    (let (p0 (+ (fst x) y))
+      (let (p1 (+ (snd x) y))
+        (pair p0 p1)))))
