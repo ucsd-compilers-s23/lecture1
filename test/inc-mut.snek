@@ -1,0 +1,13 @@
+(fun (inc lst)
+  (let (curr lst)
+    (loop
+      (if (= curr nil) (break lst)
+        (block
+          (print curr)
+          (setfst! curr (+ (fst curr) 1))
+          (set! curr (snd curr)))))))
+
+(let (lst (pair 3 (pair 900 (pair 70 nil))))
+  (block
+    (inc lst)
+    lst))

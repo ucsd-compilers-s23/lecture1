@@ -1,0 +1,10 @@
+(fun (range low high)
+  (let (n high)
+    (let (lst nil)
+      (loop
+        (if (= n low) (break lst)
+          (block
+            (set! n (+ n -1))
+            (set! lst (pair n lst))))))))
+
+(range 0 10)

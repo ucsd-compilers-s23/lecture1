@@ -39,6 +39,12 @@ enum Expr {
 
     Call1(String, Box<Expr>),
     Call2(String, Box<Expr>, Box<Expr>),
+
+    Pair(Box<Expr>, Box<Expr>),
+    Fst(Box<Expr>),
+    Snd(Box<Expr>),
+    SetFst(Box<Expr>, Box<Expr>),
+    SetSnd(Box<Expr>, Box<Expr>),
 }
 
 fn parse_expr(s: &Sexp) -> Expr {
@@ -50,11 +56,22 @@ fn parse_expr(s: &Sexp) -> Expr {
         Sexp::List(vec) => match &vec[..] {
             [Sexp::Atom(S(op)), e] if op == "add1" => Expr::Add1(Box::new(parse_expr(e))),
             [Sexp::Atom(S(op)), e] if op == "sub1" => Expr::Sub1(Box::new(parse_expr(e))),
+            [Sexp::Atom(S(op)), e] if op == "fst" => Expr::Fst(Box::new(parse_expr(e))),
+            [Sexp::Atom(S(op)), e] if op == "snd" => Expr::Snd(Box::new(parse_expr(e))),
             [Sexp::Atom(S(op)), e1, e2] if op == "+" => {
                 Expr::Plus(Box::new(parse_expr(e1)), Box::new(parse_expr(e2)))
             }
             [Sexp::Atom(S(op)), e1, e2] if op == "-" => {
                 Expr::Minus(Box::new(parse_expr(e1)), Box::new(parse_expr(e2)))
+            }
+            [Sexp::Atom(S(op)), e1, e2] if op == "pair" => {
+                Expr::Pair(Box::new(parse_expr(e1)), Box::new(parse_expr(e2)))
+            }
+            [Sexp::Atom(S(op)), e1, e2] if op == "setfst!" => {
+                Expr::SetFst(Box::new(parse_expr(e1)), Box::new(parse_expr(e2)))
+            }
+            [Sexp::Atom(S(op)), e1, e2] if op == "setsnd!" => {
+                Expr::SetSnd(Box::new(parse_expr(e1)), Box::new(parse_expr(e2)))
             }
             [Sexp::Atom(S(op)), Sexp::Atom(S(name)), e] if op == "set!" => {
                 Expr::Set(name.to_string(), Box::new(parse_expr(e)))
@@ -163,6 +180,7 @@ fn compile_expr(
         Expr::True => format!("mov rax, {}", 3),
         Expr::False => format!("mov rax, {}", 1),
         Expr::Id(s) if s == "input" => format!("mov rax, rdi"),
+        Expr::Id(s) if s == "nil" => format!("mov rax, 0x1"),
         Expr::Id(s) => {
             let offset = env.get(s).unwrap() * 8;
             format!("mov rax, [rsp + {offset}]")
@@ -374,6 +392,68 @@ fn compile_expr(
             "
             )
         }
+
+        Expr::Pair(e1, e2) => {
+            let e1is = compile_expr(e1, si, env, brake, l);
+            let e2is = compile_expr(e2, si + 1, env, brake, l);
+            let stack_offset = si * 8;
+            format!("
+                {e1is}
+                mov [rsp + {stack_offset}], rax
+                {e2is}
+                mov [r15+8], rax
+                mov rax, [rsp + {stack_offset}]
+                mov [r15], rax
+                mov rax, r15
+                add rax, 1
+                add r15, 16
+            ")
+
+        }
+
+        Expr::Fst(e) => {
+            let eis = compile_expr(e, si, env, brake, l);
+            format!("
+                {eis}
+                mov rax, [rax-1]
+            ")
+        }
+
+        Expr::Snd(e) => {
+            let eis = compile_expr(e, si, env, brake, l);
+            format!("
+                {eis}
+                mov rax, [rax+7]
+            ")
+        }
+
+        Expr::SetFst(e1, e2) => {
+            let e1is = compile_expr(e1, si, env, brake, l);
+            let e2is = compile_expr(e2, si + 1, env, brake, l);
+            let stack_offset = si * 8;
+            format!("
+                {e1is}
+                mov [rsp + {stack_offset}], rax
+                {e2is}
+                mov rbx, [rsp + {stack_offset}]
+                mov [rbx-1], rax
+                mov rax, [rsp + {stack_offset}]
+            ")
+        }
+
+        Expr::SetSnd(e1, e2) => {
+            let e1is = compile_expr(e1, si, env, brake, l);
+            let e2is = compile_expr(e2, si + 1, env, brake, l);
+            let stack_offset = si * 8;
+            format!("
+                {e1is}
+                mov [rsp + {stack_offset}], rax
+                {e2is}
+                mov rbx, [rsp + {stack_offset}]
+                mov [rbx+7], rax
+                mov rax, [rsp + {stack_offset}]
+            ")
+        }
     }
 }
 
@@ -399,6 +479,11 @@ fn depth(e: &Expr) -> i32 {
         Expr::Set(_, expr) => depth(expr),
         Expr::Call1(_, expr) => depth(expr),
         Expr::Call2(_, expr1, expr2) => depth(expr1).max(depth(expr2) + 1),
+        Expr::Pair(expr1, expr2) => depth(expr1).max(depth(expr2) + 1),
+        Expr::Fst(expr) => depth(expr),
+        Expr::Snd(expr) => depth(expr),
+        Expr::SetFst(expr1, expr2) => depth(expr1).max(depth(expr2) + 1),
+        Expr::SetSnd(expr1, expr2) => depth(expr1).max(depth(expr2) + 1),
     }
 }
 
@@ -435,7 +520,6 @@ fn compile_definition(d: &Definition, labels: &mut i32) -> String {
                 {body_is}
                 add rsp, {offset}
                 ret
-
             ")
         }
         Fun2(name, arg1, arg2, body) => {
@@ -484,6 +568,7 @@ throw_error:
   ret
 {}
 our_code_starts_here:
+  mov r15, rsi
   {}
   ret
 ",

@@ -1,0 +1,5 @@
+(fun (inc lst)
+  (if (= lst nil) nil
+    (pair (+ (fst lst) 1) (inc (snd lst)))))
+
+(inc (pair 3 (pair 900 (pair 70 nil))))

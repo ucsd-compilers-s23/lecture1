@@ -1,0 +1,9 @@
+(fun (inc lst)
+  (let (res nil)
+    (loop
+      (if (= lst nil) (break res)
+        (block
+          (set! res (pair (+ (fst lst) 1) res))
+          (set! lst (snd lst)))))))
+
+(inc (pair 3 (pair 900 (pair 70 nil))))
