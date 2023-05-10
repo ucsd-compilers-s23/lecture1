@@ -1,0 +1,2 @@
+(let (x (if input 3 4))
+  (print x))

@@ -1,0 +1,2 @@
+(let (x (if input 4 5))
+  (+ x 5))
