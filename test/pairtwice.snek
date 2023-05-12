@@ -1,0 +1,2 @@
+(let (p (pair 3 4))
+  (pair p p))

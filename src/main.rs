@@ -101,7 +101,9 @@ fn parse_expr(s: &Sexp) -> Expr {
                 Box::new(parse_expr(thn)),
                 Box::new(parse_expr(els)),
             ),
-            [Sexp::Atom(S(funname)), arg] => Expr::Call1(funname.to_string(), Box::new(parse_expr(arg))),
+            [Sexp::Atom(S(funname)), arg] => {
+                Expr::Call1(funname.to_string(), Box::new(parse_expr(arg)))
+            }
             [Sexp::Atom(S(funname)), arg1, arg2] => Expr::Call2(
                 funname.to_string(),
                 Box::new(parse_expr(arg1)),
@@ -118,8 +120,8 @@ fn is_def(s: &Sexp) -> bool {
     match s {
         Sexp::List(def_vec) => match &def_vec[..] {
             [Sexp::Atom(S(keyword)), Sexp::List(_), _] if keyword == "fun" => true,
-            _ => false
-        }
+            _ => false,
+        },
         _ => false,
     }
 }
@@ -127,15 +129,20 @@ fn is_def(s: &Sexp) -> bool {
 fn parse_definition(s: &Sexp) -> Definition {
     match s {
         Sexp::List(def_vec) => match &def_vec[..] {
-            [Sexp::Atom(S(keyword)), Sexp::List(name_vec), body] if keyword == "fun" => match &name_vec[..] {
-                [Sexp::Atom(S(funname)), Sexp::Atom(S(arg))] => {
-                    Fun1(funname.to_string(), arg.to_string(), parse_expr(body))
+            [Sexp::Atom(S(keyword)), Sexp::List(name_vec), body] if keyword == "fun" => {
+                match &name_vec[..] {
+                    [Sexp::Atom(S(funname)), Sexp::Atom(S(arg))] => {
+                        Fun1(funname.to_string(), arg.to_string(), parse_expr(body))
+                    }
+                    [Sexp::Atom(S(funname)), Sexp::Atom(S(arg1)), Sexp::Atom(S(arg2))] => Fun2(
+                        funname.to_string(),
+                        arg1.to_string(),
+                        arg2.to_string(),
+                        parse_expr(body),
+                    ),
+                    _ => panic!("Bad fundef"),
                 }
-                [Sexp::Atom(S(funname)), Sexp::Atom(S(arg1)), Sexp::Atom(S(arg2))] => {
-                    Fun2(funname.to_string(), arg1.to_string(), arg2.to_string(), parse_expr(body))
-                }
-                _ => panic!("Bad fundef"),
-            },
+            }
             _ => panic!("Bad fundef"),
         },
         _ => panic!("Bad fundef"),
@@ -158,7 +165,7 @@ fn parse_program(s: &Sexp) -> Program {
             }
             panic!("Only found definitions");
         }
-        _ => panic!("Program should be a list")
+        _ => panic!("Program should be a list"),
     }
 }
 
@@ -355,7 +362,7 @@ fn compile_expr(
         }
         Expr::Call1(name, arg) => {
             let arg_is = compile_expr(arg, si, env, brake, l);
-            let offset = (2 * 8); // one extra word for rdi saving, one for arg
+            let offset = 2 * 8; // one extra word for rdi saving, one for arg
             format!(
                 "
                 {arg_is}
@@ -372,7 +379,7 @@ fn compile_expr(
             let arg1_is = compile_expr(arg1, si, env, brake, l);
             let arg2_is = compile_expr(arg2, si + 1, env, brake, l);
             let curr_word = si * 8;
-            let offset = (3 * 8);
+            let offset = 3 * 8;
             let curr_word_after_sub = offset + curr_word;
             // With this setup, the current word will be at [rsp+16], which is where arg1 is stored
             // We then want to get rdi at [rsp+16], arg2 at [rsp+8], and arg1 at [rsp], then call
@@ -397,7 +404,8 @@ fn compile_expr(
             let e1is = compile_expr(e1, si, env, brake, l);
             let e2is = compile_expr(e2, si + 1, env, brake, l);
             let stack_offset = si * 8;
-            format!("
+            format!(
+                "
                 {e1is}
                 mov [rsp + {stack_offset}], rax
                 {e2is}
@@ -407,52 +415,60 @@ fn compile_expr(
                 mov rax, r15
                 add rax, 1
                 add r15, 16
-            ")
-
+            "
+            )
         }
 
         Expr::Fst(e) => {
             let eis = compile_expr(e, si, env, brake, l);
-            format!("
+            format!(
+                "
                 {eis}
                 mov rax, [rax-1]
-            ")
+            "
+            )
         }
 
         Expr::Snd(e) => {
             let eis = compile_expr(e, si, env, brake, l);
-            format!("
+            format!(
+                "
                 {eis}
                 mov rax, [rax+7]
-            ")
+            "
+            )
         }
 
         Expr::SetFst(e1, e2) => {
             let e1is = compile_expr(e1, si, env, brake, l);
             let e2is = compile_expr(e2, si + 1, env, brake, l);
             let stack_offset = si * 8;
-            format!("
+            format!(
+                "
                 {e1is}
                 mov [rsp + {stack_offset}], rax
                 {e2is}
                 mov rbx, [rsp + {stack_offset}]
                 mov [rbx-1], rax
                 mov rax, [rsp + {stack_offset}]
-            ")
+            "
+            )
         }
 
         Expr::SetSnd(e1, e2) => {
             let e1is = compile_expr(e1, si, env, brake, l);
             let e2is = compile_expr(e2, si + 1, env, brake, l);
             let stack_offset = si * 8;
-            format!("
+            format!(
+                "
                 {e1is}
                 mov [rsp + {stack_offset}], rax
                 {e2is}
                 mov rbx, [rsp + {stack_offset}]
                 mov [rbx+7], rax
                 mov rax, [rsp + {stack_offset}]
-            ")
+            "
+            )
         }
     }
 }
@@ -487,21 +503,22 @@ fn depth(e: &Expr) -> i32 {
     }
 }
 
-
 fn compile_program(p: &Program) -> (String, String) {
-    let mut labels : i32 = 0;
-    let mut defs : String = String::new();
+    let mut labels: i32 = 0;
+    let mut defs: String = String::new();
     for def in &p.defs[..] {
-      defs.push_str(&compile_definition(&def, &mut labels));
+        defs.push_str(&compile_definition(&def, &mut labels));
     }
     let depth = depth(&p.main);
     let offset = depth * 8;
     let main = compile_expr(&p.main, 0, &HashMap::new(), &String::from(""), &mut labels);
-    let main_with_offsetting = format!("
+    let main_with_offsetting = format!(
+        "
         sub rsp, {offset}
         {main}
         add rsp, {offset}
-    ");
+    "
+    );
     (defs, main_with_offsetting)
 }
 
@@ -520,7 +537,8 @@ fn compile_definition(d: &Definition, labels: &mut i32) -> String {
                 {body_is}
                 add rsp, {offset}
                 ret
-            ")
+            "
+            )
         }
         Fun2(name, arg1, arg2, body) => {
             let depth = depth(body);
@@ -572,8 +590,7 @@ our_code_starts_here:
   {}
   ret
 ",
-        defs,
-        main
+        defs, main
     );
 
     let mut out_file = File::create(out_name)?;

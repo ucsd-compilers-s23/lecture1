@@ -1,4 +1,4 @@
-(let (p (pair 2 3))
+(let (p (pair 1 2))
   (block
     (setfst! p p)
-    p))
+    (print p)))

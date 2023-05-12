@@ -15,16 +15,21 @@ pub fn snek_error(errcode : i64) {
   std::process::exit(1);
 }
 
-fn snek_to_str(val : i64) -> String {
+// let's change snek_str to print ... when it visits a cyclic value
+fn snek_str(val : i64, seen : &mut Vec<i64>) -> String {
   if val == 7 { "true".to_string() }
   else if val == 3 { "false".to_string() }
   else if val % 2 == 0 { format!("{}", val >> 1) }
   else if val == 1 { "nil".to_string() }
   else if val & 1 == 1 {
+    if seen.contains(&val)  { return "(pair <cyclic>)".to_string() }
+    seen.push(val);
     let addr = (val - 1) as *const i64;
     let fst = unsafe { *addr };
     let snd = unsafe { *addr.offset(1) };
-    format!("(pair {} {})", snek_to_str(fst), snek_to_str(snd))
+    let result = format!("(pair {} {})", snek_str(fst, seen), snek_str(snd, seen));
+    seen.pop();
+    return result;
   }
   else {
     format!("Unknown value: {}", val)
@@ -34,7 +39,8 @@ fn snek_to_str(val : i64) -> String {
 #[no_mangle]
 #[export_name = "\x01snek_print"]
 fn snek_print(val : i64) -> i64 {
-  println!("{}", snek_to_str(val));
+  let mut seen = Vec::<i64>::new();
+  println!("{}", snek_str(val, &mut seen));
   return val;
 }
 fn parse_arg(v : &Vec<String>) -> i64 {
