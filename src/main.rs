@@ -184,8 +184,8 @@ fn compile_expr(
 ) -> String {
     match e {
         Expr::Num(n) => format!("mov rax, {}", *n << 1),
-        Expr::True => format!("mov rax, {}", 3),
-        Expr::False => format!("mov rax, {}", 1),
+        Expr::True => format!("mov rax, {}", 7),
+        Expr::False => format!("mov rax, {}", 3),
         Expr::Id(s) if s == "input" => format!("mov rax, rdi"),
         Expr::Id(s) if s == "nil" => format!("mov rax, 0x1"),
         Expr::Id(s) => {
@@ -261,10 +261,9 @@ fn compile_expr(
                 mov rbx, rax
                 or rbx, [rsp + {offset}]
                 test rbx, 1
-                mov rbx, 7
                 jne throw_error
                 cmp rax, [rsp + {offset}]
-                mov rbx, 3
+                mov rbx, 7
                 mov rax, 1
                 cmovg rax, rbx
             "
@@ -282,10 +281,9 @@ fn compile_expr(
                 mov rbx, rax
                 xor rbx, [rsp + {offset}]
                 test rbx, 1
-                mov rbx, 7
                 jne throw_error
                 cmp rax, [rsp + {offset}]
-                mov rbx, 3
+                mov rbx, 7
                 mov rax, 1
                 cmove rax, rbx
             "
@@ -318,12 +316,10 @@ fn compile_expr(
                 "
               {e1_instrs}
               test rax, 1
-              mov rbx, 3
               jnz throw_error
               mov [rsp + {stack_offset}], rax
               {e2_instrs}
               test rax, 1
-              mov rbx, 3
               jnz throw_error
               sub rax, [rsp + {stack_offset}]
           "
@@ -337,12 +333,10 @@ fn compile_expr(
                 "
               {e1_instrs}
               test rax, 1
-              mov rbx, 3
               jnz throw_error
               mov [rsp + {stack_offset}], rax
               {e2_instrs}
               test rax, 1
-              mov rbx, 3
               jnz throw_error
               add rax, [rsp + {stack_offset}]
           "
@@ -424,6 +418,10 @@ fn compile_expr(
             format!(
                 "
                 {eis}
+                mov rbx, rax
+                and rbx, 3
+                cmp rbx, 1
+                jnz throw_error
                 mov rax, [rax-1]
             "
             )
@@ -434,6 +432,10 @@ fn compile_expr(
             format!(
                 "
                 {eis}
+                mov rbx, rax
+                and rbx, 3
+                cmp rbx, 1
+                jnz throw_error
                 mov rax, [rax+7]
             "
             )
