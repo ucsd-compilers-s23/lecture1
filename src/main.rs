@@ -1,6 +1,6 @@
 use sexp::Atom::*;
 use sexp::*;
-use std::env;
+use std::{env, f32::consts::E};
 use std::fs::File;
 use std::io::prelude::*;
 
@@ -75,67 +75,285 @@ enum FlatOp {
     SetSnd(Box<FlatVal>, Box<FlatVal>),
 
     Break(Box<FlatVal>),
+    Loop(Box<FlatBlock>),
 
-    If(Box<FlatOp>, Box<Expr>, Box<Expr>),
+    If(Box<FlatVal>, Box<FlatBlock>, Box<FlatBlock>),
 
     Val(Box<FlatVal>)
 }
 
 enum FlatBlock {
     Let(String, Box<FlatOp>, Box<FlatBlock>),
-    Loop(Box<FlatBlock>),
     Block(Vec<FlatBlock>),
     Op(Box<FlatOp>)
 }
 
+struct FlatProgram {
+    defs: Vec<FlatDefinition>,
+    main: FlatBlock,
+}
 
-fn flatten_to_val(e : &Expr, i : &mut i32) -> (Expr, Vec<(String, Expr)>) {
+enum FlatDefinition {
+    Fun1(String, String, FlatBlock),
+    Fun2(String, String, String, FlatBlock),
+}
+
+
+
+fn anf_val(e : &Expr, i : &mut i32) -> (FlatVal, Vec<(String, FlatOp)>) {
     match e {
-        Expr::Num(n) => (Expr::Num(*n), vec![]),
-        Expr::Id(s) => (Expr::Id(*s), vec![]),
-        Expr::Add1(e) => {
-            let (e, mut binds) = flatten_to_val(e, i);
-            let str = new_label(i, "%add1_");
-            binds.push((str.clone(), Expr::Add1(Box::new(e))));
-            (Expr::Id(str), binds)
+        Expr::Num(n) => (FlatVal::Num(*n), vec![]),
+        Expr::Id(s) => (FlatVal::Id(s.clone()), vec![]),
+        Expr::True => (FlatVal::True, vec![]),
+        Expr::False => (FlatVal::False, vec![]),
+        _ => {
+            let (op, mut binds) = anf_expr(e, i);
+            let tmp = new_label(i, "%t");
+            binds.push((tmp.clone(), op));
+            (FlatVal::Id(tmp), binds)
         }
-        Expr::Plus(e1, e2) => {
-            let (plus, mut binds) = flatten_to_op(e, i);
-            let tmp = new_label(i, "%plus_");
-            binds.push((tmp.clone(), plus));
-            (Expr::Id(tmp), binds)
-        }
-        Expr::Let(x, v, body) => {
-            let (v, mut binds1) = flatten_to_op(v, i);
-            let (body, mut binds2) = flatten_to_val(body, i);
-            binds1.append(&mut binds2);
-            (body, binds1)
-        }
-        _ => todo!()
     }
 }
 
-fn flatten_to_op(e : &Expr, i : &mut i32) -> (Expr, Vec<(String, Expr)>) {
+fn anf_expr(e : &Expr, i : &mut i32) -> (FlatOp, Vec<(String, FlatOp)>) {
     match e {
-        Expr::Num(n) => (Expr::Num(n), vec![]),
-        Expr::Id(s) => (Expr::Id(s), vec![]),
+        Expr::Num(n) => (FlatOp::Val(Box::new(FlatVal::Num(*n))), vec![]),
+        Expr::Id(s) => (FlatOp::Val(Box::new(FlatVal::Id(s.clone()))), vec![]),
+        Expr::True => (FlatOp::Val(Box::new(FlatVal::True)), vec![]),
+        Expr::False => (FlatOp::Val(Box::new(FlatVal::False)), vec![]),
         Expr::Add1(e) => {
-            let (e, binds) = flatten_to_val(*e, i);
-            (Expr::Add1(Box::new(e)), binds)
+            let (e, binds) = anf_val(e, i);
+            (FlatOp::Add1(Box::new(e)), binds)
+        }
+        Expr::Sub1(e) => {
+            let (e, binds) = anf_val(e, i);
+            (FlatOp::Sub1(Box::new(e)), binds)
+        }
+        Expr::Loop(e) => {
+            (FlatOp::Loop(Box::new(anf_block(e, i))), vec![])
+        }
+        Expr::Break(e) => {
+            let (e, binds) = anf_val(e, i);
+            (FlatOp::Break(Box::new(e)), binds)
+        }
+        Expr::Print(e) => {
+            let (e, binds) = anf_val(e, i);
+            (FlatOp::Print(Box::new(e)), binds)
+        }
+        Expr::Call1(f, e) => {
+            let (e, binds) = anf_val(e, i);
+            (FlatOp::Call1(f.clone(), Box::new(e)), binds)
+        }
+        Expr::Call2(f, e1, e2) => {
+            let (e1, mut binds1) = anf_val(e1, i);
+            let (e2, mut binds2) = anf_val(e2, i);
+            binds1.append(&mut binds2);
+            (FlatOp::Call2(f.clone(), Box::new(e1), Box::new(e2)), binds1)
+        }
+        Expr::Set(x, e) => {
+            let (e, binds) = anf_val(e, i);
+            (FlatOp::Set(x.clone(), Box::new(e)), binds)
+        }
+        Expr::Fst(e) => {
+            let (e, binds) = anf_val(e, i);
+            (FlatOp::Fst(Box::new(e)), binds)
+        }
+        Expr::SetFst(e1, e2) => {
+            let (e1, mut binds1) = anf_val(e1, i);
+            let (e2, mut binds2) = anf_val(e2, i);
+            binds1.append(&mut binds2);
+            (FlatOp::SetFst(Box::new(e1), Box::new(e2)), binds1)
+        }
+        Expr::SetSnd(e1, e2) => {
+            let (e1, mut binds1) = anf_val(e1, i);
+            let (e2, mut binds2) = anf_val(e2, i);
+            binds1.append(&mut binds2);
+            (FlatOp::SetSnd(Box::new(e1), Box::new(e2)), binds1)
         }
         Expr::Plus(e1, e2) => {
-            let (e1, mut binds1) = flatten_to_val(e1, i);
-            let (e2, mut binds2) = flatten_to_val(e2, i);
+            let (e1, mut binds1) = anf_val(e1, i);
+            let (e2, mut binds2) = anf_val(e2, i);
             binds1.append(&mut binds2);
-            (Expr::Plus(Box::new(e1), Box::new(e2)), binds1)
+            (FlatOp::Plus(Box::new(e1), Box::new(e2)), binds1)
+        }
+        Expr::Minus(e1, e2) => {
+            let (e1, mut binds1) = anf_val(e1, i);
+            let (e2, mut binds2) = anf_val(e2, i);
+            binds1.append(&mut binds2);
+            (FlatOp::Minus(Box::new(e1), Box::new(e2)), binds1)
+        }
+        Expr::Eq(e1, e2) => {
+            let (e1, mut binds1) = anf_val(e1, i);
+            let (e2, mut binds2) = anf_val(e2, i);
+            binds1.append(&mut binds2);
+            (FlatOp::Eq(Box::new(e1), Box::new(e2)), binds1)
+        }
+        Expr::Lt(e1, e2) => {
+            let (e1, mut binds1) = anf_val(e1, i);
+            let (e2, mut binds2) = anf_val(e2, i);
+            binds1.append(&mut binds2);
+            (FlatOp::Lt(Box::new(e1), Box::new(e2)), binds1)
+        }
+        Expr::If(e1, e2, e3) => {
+            let (e1, binds1) = anf_val(e1, i);
+            let e2 = anf_block(e2, i);
+            let e3 = anf_block(e3, i);
+            (FlatOp::If(Box::new(e1), Box::new(e2), Box::new(e3)), binds1)
         }
         Expr::Let(x, v, body) => {
-            let (v, mut binds1) = flatten_to_op(v, i);
-            let (body, mut binds2) = flatten_to_val(body, i);
+            let (v, mut binds1) = anf_expr(v, i);
+            let (body, mut binds2) = anf_expr(body, i);
+            binds1.push((x.clone(), v));
             binds1.append(&mut binds2);
             (body, binds1)
         }
-        _ => todo!()
+        Expr::Block(vec) => {
+            let mut binds = vec![];
+            let mut index = 0;
+            for e in vec {
+                if index == vec.len() - 1 {
+                    let (e, mut ebinds) = anf_expr(e, i);
+                    binds.append(&mut ebinds);
+                    return (e, binds);
+                }
+                index += 1;
+                let (e, mut ebinds) = anf_expr(e, i);
+                let tmp = new_label(i, "%block_unused_");
+                binds.append(&mut ebinds);
+                binds.push((tmp.clone(), e));
+            }
+            panic!("Empty block")
+        }
+        Expr::Pair(e1, e2) => {
+            let (e1, mut binds1) = anf_val(e1, i);
+            let (e2, mut binds2) = anf_val(e2, i);
+            binds1.append(&mut binds2);
+            (FlatOp::Pair(Box::new(e1), Box::new(e2)), binds1)
+        }
+        Expr::Snd(e) => {
+            let (e, binds) = anf_val(e, i);
+            (FlatOp::Fst(Box::new(e)), binds)
+        }
+    }
+}
+
+fn anf_block(e : &Expr, i : &mut i32) -> FlatBlock {
+    match e {
+        Expr::Let(x, v, body) => {
+            let (v, binds1) = anf_expr(v, i);
+            let mut body = anf_block(body, i);
+            for (x, val) in binds1.into_iter().rev() {
+                body = FlatBlock::Let(x, Box::new(val), Box::new(body));
+            }
+            FlatBlock::Let(x.clone(), Box::new(v), Box::new(body))
+        }
+        Expr::Block(vec) => {
+            let mut blocks = vec![];
+            for e in vec {
+                let e = anf_block(e, i);
+                blocks.push(e);
+            }
+            FlatBlock::Block(blocks)
+        }
+        _ => {
+            let (op, binds) = anf_expr(e, i);
+            let mut block = FlatBlock::Op(Box::new(op));
+            for (x, v) in binds.into_iter().rev() {
+                block = FlatBlock::Let(x, Box::new(v), Box::new(block));
+            }
+            block
+        }
+    }
+}
+
+fn anf_definition(e : &Definition) -> FlatDefinition {
+    match e {
+        Definition::Fun1(f, x, e) => {
+            let mut i = 0;
+            let e = anf_block(e, &mut i);
+            FlatDefinition::Fun1(f.clone(), x.clone(), e)
+        }
+        Definition::Fun2(f, x, y, e) => {
+            let mut i = 0;
+            let e = anf_block(e, &mut i);
+            FlatDefinition::Fun2(f.clone(), x.clone(), y.clone(), e)
+        }
+    }
+}
+
+fn anf_program(p : &Program) -> FlatProgram {
+    let mut defs = vec![];
+    for d in &p.defs {
+        defs.push(anf_definition(d));
+    }
+    let mut i = 0;
+    let main = anf_block(&p.main, &mut i);
+    FlatProgram { main, defs }
+}
+
+/// Takes a program and returns a string of the program as an s-expression; uses
+/// helper functions expr_to_string and val_to_string
+fn block_to_string(e : &FlatBlock) -> String {
+    match e {
+        FlatBlock::Op(op) => op_to_string(op),
+        FlatBlock::Let(x, v, body) => format!("(let {} {} {})", x, op_to_string(v), block_to_string(body)),
+        FlatBlock::Block(vec) => {
+            let mut s = String::from("(block");
+            for e in vec {
+                s.push_str(&format!(" {}", block_to_string(e)));
+            }
+            s.push_str(")");
+            s
+        }
+    } 
+}
+
+fn flatdefinition_to_string(e : &FlatDefinition) -> String {
+    match e {
+        FlatDefinition::Fun1(f, x, body) => format!("(fun ({} {}) {})", f, x, block_to_string(body)),
+        FlatDefinition::Fun2(f, x, y, body) => format!("(fun ({} {} {}) {})", f, x, y, block_to_string(body)),
+    }
+}
+
+fn flatprogram_to_string(e : &FlatProgram) -> String {
+    let mut s = String::from("");
+    for d in &e.defs {
+        s.push_str(&format!("{}\n\n", flatdefinition_to_string(d)));
+    }
+    s.push_str(&format!("{})", block_to_string(&e.main)));
+    s
+}
+
+fn op_to_string(e : &FlatOp) -> String {
+    match e {
+        FlatOp::Add1(e) => format!("(add1 {})", val_to_string(e)),
+        FlatOp::Sub1(e) => format!("(sub1 {})", val_to_string(e)),
+        FlatOp::Plus(e1, e2) => format!("(+ {} {})", val_to_string(e1), val_to_string(e2)),
+        FlatOp::Minus(e1, e2) => format!("(- {} {})", val_to_string(e1), val_to_string(e2)),
+        FlatOp::Pair(e1, e2) => format!("(pair {} {})", val_to_string(e1), val_to_string(e2)),
+        FlatOp::Print(e) => format!("(print {})", val_to_string(e)),
+        FlatOp::SetFst(e1, e2) => format!("(set-fst! {} {})", val_to_string(e1), val_to_string(e2)),
+        FlatOp::SetSnd(e1, e2) => format!("(set-snd! {} {})", val_to_string(e1), val_to_string(e2)),
+        FlatOp::Fst(e) => format!("(fst {})", val_to_string(e)),
+        FlatOp::Snd(e) => format!("(snd {})", val_to_string(e)),
+        FlatOp::Set(x, e) => format!("(set! {} {})", x, val_to_string(e)),
+        FlatOp::Break(e) => format!("(break {})", val_to_string(e)),
+        FlatOp::Call1(f, e) => format!("(call1 {} {})", f, val_to_string(e)),
+        FlatOp::Call2(f, e1, e2) => format!("(call2 {} {} {})", f, val_to_string(e1), val_to_string(e2)),
+        FlatOp::Eq(e1, e2) => format!("(= {} {})", val_to_string(e1), val_to_string(e2)),
+        FlatOp::Lt(e1, e2) => format!("(< {} {})", val_to_string(e1), val_to_string(e2)),
+        FlatOp::If(e1, e2, e3) => format!("(if {} {} {})", val_to_string(e1), block_to_string(e2), block_to_string(e3)),
+        FlatOp::Loop(e) => format!("(loop {})", block_to_string(e)),
+        FlatOp::Val(v) => val_to_string(v),
+    }
+}
+
+fn val_to_string(e : &FlatVal) -> String {
+    match e {
+        FlatVal::Num(n) => format!("{}", n),
+        FlatVal::Id(x) => x.clone(),
+        FlatVal::True => String::from("true"),
+        FlatVal::False => String::from("false"),
     }
 }
 
@@ -663,6 +881,24 @@ fn main() -> std::io::Result<()> {
 
     let in_name = &args[1];
     let out_name = &args[2];
+
+    if args.len() == 4 && &args[3] == "--anf" {
+        let mut in_file = File::open(in_name)?;
+        let mut in_contents = String::new();
+        in_file.read_to_string(&mut in_contents)?;
+
+        let prog = "(".to_owned() + &in_contents + ")";
+
+        let prog = parse_program(&parse(&prog).unwrap());
+        let mut i = 0;
+        let prog = anf_program(&prog);
+        let anf_program = flatprogram_to_string(&prog);
+        
+        let mut out_file = File::create(out_name)?;
+        out_file.write_all(anf_program.as_bytes())?;
+        return Ok(());
+    }
+
 
     let mut in_file = File::open(in_name)?;
     let mut in_contents = String::new();
