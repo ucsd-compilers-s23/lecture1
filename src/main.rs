@@ -1,6 +1,6 @@
 use sexp::Atom::*;
 use sexp::*;
-use std::{env};
+use std::env;
 use std::fs::File;
 use std::io::prelude::*;
 
@@ -53,10 +53,7 @@ enum Expr {
     SetSnd(Box<Expr>, Box<Expr>),
 }
 
-
-
-
-fn anf_val(e : &Expr, i : &mut i32) -> (FlatVal, Vec<(String, FlatOp)>) {
+fn anf_val(e: &Expr, i: &mut i32) -> (FlatVal, Vec<(String, FlatOp)>) {
     match e {
         Expr::Num(n) => (FlatVal::Num(*n), vec![]),
         Expr::Id(s) => (FlatVal::Id(s.clone()), vec![]),
@@ -71,7 +68,7 @@ fn anf_val(e : &Expr, i : &mut i32) -> (FlatVal, Vec<(String, FlatOp)>) {
     }
 }
 
-fn anf_expr(e : &Expr, i : &mut i32) -> (FlatOp, Vec<(String, FlatOp)>) {
+fn anf_expr(e: &Expr, i: &mut i32) -> (FlatOp, Vec<(String, FlatOp)>) {
     match e {
         Expr::Num(n) => (FlatOp::Val(Box::new(FlatVal::Num(*n))), vec![]),
         Expr::Id(s) => (FlatOp::Val(Box::new(FlatVal::Id(s.clone()))), vec![]),
@@ -85,9 +82,7 @@ fn anf_expr(e : &Expr, i : &mut i32) -> (FlatOp, Vec<(String, FlatOp)>) {
             let (e, binds) = anf_val(e, i);
             (FlatOp::Sub1(Box::new(e)), binds)
         }
-        Expr::Loop(e) => {
-            (FlatOp::Loop(Box::new(anf_block(e, i))), vec![])
-        }
+        Expr::Loop(e) => (FlatOp::Loop(Box::new(anf_block(e, i))), vec![]),
         Expr::Break(e) => {
             let (e, binds) = anf_val(e, i);
             (FlatOp::Break(Box::new(e)), binds)
@@ -193,7 +188,7 @@ fn anf_expr(e : &Expr, i : &mut i32) -> (FlatOp, Vec<(String, FlatOp)>) {
     }
 }
 
-fn anf_block(e : &Expr, i : &mut i32) -> FlatBlock {
+fn anf_block(e: &Expr, i: &mut i32) -> FlatBlock {
     match e {
         Expr::Let(x, v, body) => {
             let (v, binds1) = anf_expr(v, i);
@@ -222,7 +217,7 @@ fn anf_block(e : &Expr, i : &mut i32) -> FlatBlock {
     }
 }
 
-fn anf_definition(e : &Definition) -> FlatDefinition {
+fn anf_definition(e: &Definition) -> FlatDefinition {
     match e {
         Definition::Fun1(f, x, e) => {
             let mut i = 0;
@@ -237,7 +232,7 @@ fn anf_definition(e : &Definition) -> FlatDefinition {
     }
 }
 
-fn anf_program(p : &Program) -> FlatProgram {
+fn anf_program(p: &Program) -> FlatProgram {
     let mut defs = vec![];
     for d in &p.defs {
         defs.push(anf_definition(d));
@@ -249,10 +244,12 @@ fn anf_program(p : &Program) -> FlatProgram {
 
 /// Takes a program and returns a string of the program as an s-expression; uses
 /// helper functions expr_to_string and val_to_string
-fn block_to_string(e : &FlatBlock) -> String {
+fn block_to_string(e: &FlatBlock) -> String {
     match e {
         FlatBlock::Op(op) => op_to_string(op),
-        FlatBlock::Let(x, v, body) => format!("(let {} {} {})", x, op_to_string(v), block_to_string(body)),
+        FlatBlock::Let(x, v, body) => {
+            format!("(let {} {} {})", x, op_to_string(v), block_to_string(body))
+        }
         FlatBlock::Block(vec) => {
             let mut s = String::from("(block");
             for e in vec {
@@ -261,17 +258,21 @@ fn block_to_string(e : &FlatBlock) -> String {
             s.push_str(")");
             s
         }
-    } 
-}
-
-fn flatdefinition_to_string(e : &FlatDefinition) -> String {
-    match e {
-        FlatDefinition::Fun1(f, x, body) => format!("(fun ({} {}) {})", f, x, block_to_string(body)),
-        FlatDefinition::Fun2(f, x, y, body) => format!("(fun ({} {} {}) {})", f, x, y, block_to_string(body)),
     }
 }
 
-fn flatprogram_to_string(e : &FlatProgram) -> String {
+fn flatdefinition_to_string(e: &FlatDefinition) -> String {
+    match e {
+        FlatDefinition::Fun1(f, x, body) => {
+            format!("(fun ({} {}) {})", f, x, block_to_string(body))
+        }
+        FlatDefinition::Fun2(f, x, y, body) => {
+            format!("(fun ({} {} {}) {})", f, x, y, block_to_string(body))
+        }
+    }
+}
+
+fn flatprogram_to_string(e: &FlatProgram) -> String {
     let mut s = String::from("");
     for d in &e.defs {
         s.push_str(&format!("{}\n\n", flatdefinition_to_string(d)));
@@ -280,7 +281,7 @@ fn flatprogram_to_string(e : &FlatProgram) -> String {
     s
 }
 
-fn op_to_string(e : &FlatOp) -> String {
+fn op_to_string(e: &FlatOp) -> String {
     match e {
         FlatOp::Add1(e) => format!("(add1 {})", val_to_string(e)),
         FlatOp::Sub1(e) => format!("(sub1 {})", val_to_string(e)),
@@ -295,16 +296,23 @@ fn op_to_string(e : &FlatOp) -> String {
         FlatOp::Set(x, e) => format!("(set! {} {})", x, val_to_string(e)),
         FlatOp::Break(e) => format!("(break {})", val_to_string(e)),
         FlatOp::Call1(f, e) => format!("(call1 {} {})", f, val_to_string(e)),
-        FlatOp::Call2(f, e1, e2) => format!("(call2 {} {} {})", f, val_to_string(e1), val_to_string(e2)),
+        FlatOp::Call2(f, e1, e2) => {
+            format!("(call2 {} {} {})", f, val_to_string(e1), val_to_string(e2))
+        }
         FlatOp::Eq(e1, e2) => format!("(= {} {})", val_to_string(e1), val_to_string(e2)),
         FlatOp::Lt(e1, e2) => format!("(< {} {})", val_to_string(e1), val_to_string(e2)),
-        FlatOp::If(e1, e2, e3) => format!("(if {} {} {})", val_to_string(e1), block_to_string(e2), block_to_string(e3)),
+        FlatOp::If(e1, e2, e3) => format!(
+            "(if {} {} {})",
+            val_to_string(e1),
+            block_to_string(e2),
+            block_to_string(e3)
+        ),
         FlatOp::Loop(e) => format!("(loop {})", block_to_string(e)),
         FlatOp::Val(v) => val_to_string(v),
     }
 }
 
-fn val_to_string(e : &FlatVal) -> String {
+fn val_to_string(e: &FlatVal) -> String {
     match e {
         FlatVal::Num(n) => format!("{}", n),
         FlatVal::Id(x) => x.clone(),
@@ -833,30 +841,29 @@ fn main() -> std::io::Result<()> {
     let in_name = &args[1];
     let out_name = &args[2];
 
-    if args.len() == 4 && &args[3] == "--anf" {
-        let mut in_file = File::open(in_name)?;
-        let mut in_contents = String::new();
-        in_file.read_to_string(&mut in_contents)?;
-
-        let prog = "(".to_owned() + &in_contents + ")";
-
-        let prog = parse_program(&parse(&prog).unwrap());
-        let prog = anf_program(&prog);
-        let anf_program = flatprogram_to_string(&prog);
-        
-        let mut out_file = File::create(out_name)?;
-        out_file.write_all(anf_program.as_bytes())?;
-        return Ok(());
-    }
-
-
     let mut in_file = File::open(in_name)?;
     let mut in_contents = String::new();
     in_file.read_to_string(&mut in_contents)?;
 
     let prog = "(".to_owned() + &in_contents + ")";
-
     let prog = parse_program(&parse(&prog).unwrap());
+
+    if args.len() == 4 && &args[3] == "--anf" {
+        let prog = anf_program(&prog);
+        let anf_program = flatprogram_to_string(&prog);
+        let mut out_file = File::create(out_name)?;
+        out_file.write_all(anf_program.as_bytes())?;
+        return Ok(());
+    }
+    if args.len() == 4 && &args[3] == "--ir" {
+        let prog = anf_program(&prog);
+        let prog = anf_to_ir(&prog);
+        let anf_program = ir_to_string(&prog);
+        let mut out_file = File::create(out_name)?;
+        out_file.write_all(anf_program.as_bytes())?;
+        return Ok(());
+    }
+
     let (defs, main) = compile_program(&prog);
     let asm_program = format!(
         "

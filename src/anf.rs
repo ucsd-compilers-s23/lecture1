@@ -1,4 +1,3 @@
-
 pub enum FlatVal {
     Num(i32),
     True,
@@ -31,13 +30,13 @@ pub enum FlatOp {
 
     If(Box<FlatVal>, Box<FlatBlock>, Box<FlatBlock>),
 
-    Val(Box<FlatVal>)
+    Val(Box<FlatVal>),
 }
 
 pub enum FlatBlock {
     Let(String, Box<FlatOp>, Box<FlatBlock>),
     Block(Vec<FlatBlock>),
-    Op(Box<FlatOp>)
+    Op(Box<FlatOp>),
 }
 
 pub struct FlatProgram {
