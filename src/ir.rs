@@ -241,7 +241,7 @@ pub fn anf_to_ir_expr(op: &FlatOp, target: &str, brake: &str, i: &mut i32) -> Ve
         FlatOp::Loop(e) => {
             let loop_label = new_label(i, "loop");
             let end_label = new_label(i, "end");
-            let mut steps = anf_to_ir_block(e, target, &loop_label[..], i);
+            let mut steps = anf_to_ir_block(e, target, &end_label[..], i);
             steps.insert(0, Step::Label(loop_label.clone()));
             steps.push(Step::Label(end_label.clone()));
             steps
