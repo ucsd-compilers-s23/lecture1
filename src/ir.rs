@@ -281,9 +281,10 @@ pub fn anf_to_ir_expr(op: &FlatOp, target: &str, brake: &str, i: &mut i32) -> Ve
             vec![target_step(target, Expr::Lt(Box::new(v1), Box::new(v2)))]
         }
         FlatOp::Set(name, v) => {
-            let v = anf_to_ir_expr(v);
+            let v = anf_to_ir_val(v);
             vec![
-                target_step(target, v),
+                Step::Set(name.to_string(), Expr::Val(Box::new(v))),
+                target_step(target, Expr::Val(Box::new(Val::Id(name.to_string())))),
             ]
         }
         FlatOp::Call1(name, v) => {
