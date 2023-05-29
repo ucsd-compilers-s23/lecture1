@@ -5,6 +5,7 @@ use std::fs::File;
 use std::io::prelude::*;
 
 use im::{hashmap, HashMap};
+use std::collections::{HashMap as MutableMap};
 
 mod anf;
 mod ir;
@@ -835,6 +836,333 @@ fn compile_definition(d: &Definition, labels: &mut i32) -> String {
     }
 }
 
+/// target is assumed to be a *register*
+fn compile_ir_val(v : &ir::Val, target: &str, env: &mut MutableMap<String, i32>) -> String {
+    match v {
+        Val::Num(n) => format!("mov {target}, {}", *n << 1),
+        Val::True => format!("mov {target}, 7"),
+        Val::False => format!("mov {target}, 3"),
+        Val::Id(x) if x == "input" => {
+            format!("mov {target}, rdi")
+        }
+        Val::Id(x) if x == "nil" => {
+            format!("mov {target}, 1")
+        }
+        Val::Id(x) => {
+            let offset = match env.get(x) {
+                Some(offset) => (*offset) * 8,
+                None => {
+                    panic!("Unbound identifier {x}")
+                }
+            };
+            format!("mov {target}, [rsp - {offset}] ; {x}")
+        }
+    }
+}
+
+fn compile_ir_expr(e : &ir::Expr, env: &mut MutableMap<String, i32>) -> String {
+    match e {
+        ir::Expr::Add1(e) => {
+            let e_is = compile_ir_val(&e, "rax", env);
+            format!(
+                "
+                {e_is}
+                add rax, 2
+            "
+            )
+        }
+        ir::Expr::Sub1(e) => {
+            let e_is = compile_ir_val(&e, "rax", env);
+            format!(
+                "
+                {e_is}
+                sub rax, 2
+            "
+            )
+        }
+        ir::Expr::Plus(e1, e2) => {
+            let e1_is = compile_ir_val(&e1, "rax", env);
+            let e2_is = compile_ir_val(&e2, "rbx", env);
+            format!(
+                "
+                {e1_is}
+                {e2_is}
+                add rax, rbx
+            "
+            )
+        }
+        ir::Expr::Minus(e1, e2) => {
+            let e1_is = compile_ir_val(&e1, "rax", env);
+            let e2_is = compile_ir_val(&e2, "rbx", env);
+            format!(
+                "
+                {e1_is}
+                {e2_is}
+                sub rax, rbx
+            "
+            )
+        }
+        ir::Expr::Eq(e1, e2) => {
+            let e1_is = compile_ir_val(&e1, "rax", env);
+            let e2_is = compile_ir_val(&e2, "rbx", env);
+            format!(
+                "
+                {e1_is}
+                {e2_is}
+                cmp rax, rbx
+                mov rbx, 7
+                mov rax, 3
+                cmove rax, rbx
+            "
+            )
+        }
+        ir::Expr::Lt(e1, e2) => {
+            let e1_is = compile_ir_val(&e1, "rax", env);
+            let e2_is = compile_ir_val(&e2, "rbx", env);
+            format!(
+                "
+                {e1_is}
+                {e2_is}
+                cmp rax, rbx
+                mov rbx, 7
+                mov rax, 3
+                cmovl rax, rbx
+            "
+            )
+        }
+        ir::Expr::Print(v) => {
+            let v_is = compile_ir_val(&v, "rax", env);
+            let offset = env.len() * 8;
+            format!(
+                "
+                {v_is}
+                sub rsp, {offset}
+                push rdi
+                mov rdi, rax
+                call snek_print
+                pop rdi
+                add rsp, {offset}
+            "
+            ) 
+        }
+        ir::Expr::Call1(f, arg) => {
+            let arg_is = compile_ir_val(&arg, "rax", env);
+            let offset = env.len() * 8;
+            format!(
+                "
+                {arg_is}
+                sub rsp, {offset}
+                push rdi
+                push rax
+                call {f}
+                add rsp, 8
+                pop rdi
+                add rsp, {offset}
+            "
+            )
+        }
+        ir::Expr::Call2(f, arg1, arg2) => {
+            let arg1_is = compile_ir_val(&arg1, "rax", env);
+            let arg2_is = compile_ir_val(&arg2, "rbx", env);
+            let offset = env.len() * 8;
+            format!(
+                "
+                {arg1_is}
+                {arg2_is}
+                sub rsp, {offset}
+                push rdi
+                push rbx
+                push rax
+                call {f}
+                add rsp, 16
+                pop rdi
+                add rsp, {offset}
+            "
+            )
+        }
+        ir::Expr::Pair(e1, e2) => {
+            let e1_is = compile_ir_val(&e1, "rax", env);
+            let e2_is = compile_ir_val(&e2, "rbx", env);
+            format!(
+                "
+                {e1_is}
+                {e2_is}
+                mov [r15], rax
+                mov [r15+8], rbx
+                mov rax, r15
+                add rax, 1
+                add r15, 16
+            "
+            )
+        }
+        ir::Expr::Fst(e) => {
+            let e_is = compile_ir_val(&e, "rax", env);
+            format!(
+                "
+                {e_is}
+                mov rax, [rax-1]
+            "
+            )
+        }
+        ir::Expr::Snd(e) => {
+            let e_is = compile_ir_val(&e, "rax", env);
+            format!(
+                "
+                {e_is}
+                mov rax, [rax+7]
+            "
+            )
+        }
+        ir::Expr::SetFst(p, v) => {
+            let p_is = compile_ir_val(&p, "rax", env);
+            let v_is = compile_ir_val(&v, "rbx", env);
+            format!(
+                "
+                {p_is}
+                {v_is}
+                mov [rax-1], rbx
+                mov rax, rbx
+            "
+            )
+        }
+        ir::Expr::SetSnd(p, v) => {
+            let p_is = compile_ir_val(&p, "rax", env);
+            let v_is = compile_ir_val(&v, "rbx", env);
+            format!(
+                "
+                {p_is}
+                {v_is}
+                mov [rax+7], rbx
+                mov rax, rbx
+            "
+            )
+        }
+        ir::Expr::Val(v) => compile_ir_val(v, "rax", env)
+    }
+}
+
+fn compile_ir_step(s : &Step, env: &mut MutableMap<String, i32>, lbl : &str) -> String {
+    match s {
+        Step::Label(l) => format!("{lbl}_{l}:\n"),
+        Step::If(v, thn, els) => {
+            let v_is = compile_ir_val(&v, "rax", env);
+            format!(
+                "
+                {v_is}
+                cmp rax, 3
+                je {lbl}_{els}
+                jmp {lbl}_{thn}
+            "
+            )
+        }
+        Step::Goto(l) => format!("jmp {lbl}_{l}\n"),
+        Step::Do(e) => compile_ir_expr(e, env),
+        Step::Set(x, e) => {
+            let e_is = compile_ir_expr(e, env);
+            let offset = match env.get(x) {
+                Some(offset) => (*offset) * 8,
+                None => {
+                    panic!("Unbound identifier {x}")
+                }
+            };
+            format!(
+                "
+                {e_is}
+                mov [rsp - {offset}], rax    ; {x}
+            "
+            )
+        }
+    }
+}
+
+/// The argument for env is deliberately a *mutable* hashmap, so that we can
+/// incrementally add bindings. There is no depth, so in some ways we've made
+/// things _worse_ until we can register allocate reasonably.
+fn compile_ir_block(b : &Block, env: &mut MutableMap<String, i32>, lbl: &str) -> String {
+    let mut steps: String = String::new();
+    for step in &b.steps {
+        steps.push_str(&compile_ir_step(&step, env, lbl));
+    }
+    steps
+}
+
+fn compile_ir_def(d : &Def) -> String {
+    match d {
+        Def::Fun1(name, arg, body) => {
+            let mut env = calc_env(body);
+            env.insert(arg.clone(), -1);
+            let body_is = compile_ir_block(&body, &mut env, &name);
+            format!(
+                "
+                {name}:
+                {body_is}
+                ret
+            "
+            )
+        }
+        Def::Fun2(name, arg1, arg2, body) => {
+            let mut env = calc_env(body);
+            env.insert(arg1.clone(), -1);
+            env.insert(arg2.clone(), -2);
+            let body_is = compile_ir_block(&body, &mut env, &name);
+            format!(
+                "
+                {name}:
+                {body_is}
+                ret
+            "
+            )
+        }
+    }
+}
+
+fn calc_env(b : &Block) -> MutableMap<String, i32> {
+    let mut env = MutableMap::new();
+    for step in &b.steps {
+        match step {
+            Step::Set(x, _) => {
+                if !env.contains_key(x) {
+                    let offset = env.len() as i32;
+                    env.insert(x.clone(), offset + 1);
+                }
+            }
+            _ => {}
+        }
+    }
+    env
+}
+
+fn compile_ir_program(p : &Prog) -> (String, String) {
+    let mut defs: String = String::new();
+    for def in &p.defs[..] {
+        defs.push_str(&compile_ir_def(&def));
+    }
+    let mut main_env = calc_env(&p.main);
+    (defs, compile_ir_block(&p.main, &mut main_env, "main"))
+}
+
+fn fill_template(defs : &str, main: &str) -> String {
+    format!(
+        "
+section .text
+global our_code_starts_here
+extern snek_error
+extern snek_print
+throw_error:
+  push rsp
+  mov rdi, rbx
+  call snek_error
+  ret
+{}
+our_code_starts_here:
+  mov r15, rsi
+  {}
+  ret
+",
+        defs, main
+    )
+}
+
 fn main() -> std::io::Result<()> {
     let args: Vec<String> = env::args().collect();
 
@@ -859,31 +1187,19 @@ fn main() -> std::io::Result<()> {
         let prog = anf_program(&prog);
         let prog = anf_to_ir(&prog);
         let anf_program = ir_to_string(&prog);
-        let mut out_file = File::create(out_name)?;
+        let mut out_file = File::create(format!("{}.ir", out_name))?;
         out_file.write_all(anf_program.as_bytes())?;
+
+        let (defs, main) = compile_ir_program(&prog);
+        let asm_program = fill_template(&defs, &main);
+
+        let mut out_file = File::create(out_name)?;
+        out_file.write_all(asm_program.as_bytes())?;
         return Ok(());
     }
 
     let (defs, main) = compile_program(&prog);
-    let asm_program = format!(
-        "
-section .text
-global our_code_starts_here
-extern snek_error
-extern snek_print
-throw_error:
-  push rsp
-  mov rdi, rbx
-  call snek_error
-  ret
-{}
-our_code_starts_here:
-  mov r15, rsi
-  {}
-  ret
-",
-        defs, main
-    );
+    let asm_program = fill_template(&defs, &main);
 
     let mut out_file = File::create(out_name)?;
     out_file.write_all(asm_program.as_bytes())?;
