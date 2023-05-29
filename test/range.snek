@@ -7,7 +7,7 @@
         (loop
           (if (= n low) (break lst)
             (block
-              (set! n (+ n -1))
-              (set! lst (pair n lst)))))))))
+              (set! lst (pair n lst))
+              (set! n (+ n -1)))))))))
 
 (range 0 10)
