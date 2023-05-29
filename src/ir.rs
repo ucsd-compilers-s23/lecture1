@@ -196,13 +196,13 @@ pub fn anf_to_ir_expr(op: &FlatOp, target: &str, brake: &str, i: &mut i32) -> Ve
 
                (let (x (if v b1 b2)) body)
 
-               We want this resulting structure (the inversion of b1 and b2 is
-               intentional because the semantics of if is "jump if true"):
+               We want this resulting structure:
 
-               if v thn
+               if v thn els
+               thn:
                    b2
                    break end
-               thn:
+               els:
                    b1
                end:
                x = ***the answer of either b1 or b2 somehow***
