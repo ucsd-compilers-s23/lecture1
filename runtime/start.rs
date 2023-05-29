@@ -24,8 +24,7 @@ fn snek_str(val : i64, seen : &mut Vec<i64>) -> String {
   else if val & 1 == 1 {
     if seen.contains(&val)  { return "(pair <cyclic>)".to_string() }
     seen.push(val);
-    let mut addr = (val - 1) as *mut i64;
-    unsafe { *addr = 22; }
+    let addr = (val - 1) as *const i64;
     let fst = unsafe { *addr };
     let snd = unsafe { *addr.offset(1) };
     let result = format!("(pair {} {})", snek_str(fst, seen), snek_str(snd, seen));
