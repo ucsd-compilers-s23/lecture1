@@ -194,10 +194,11 @@ fn anf_block(e: &Expr, i: &mut i32) -> FlatBlock {
         Expr::Let(x, v, body) => {
             let (v, binds1) = anf_expr(v, i);
             let mut body = anf_block(body, i);
+            body = FlatBlock::Let(x.clone(), Box::new(v), Box::new(body));
             for (x, val) in binds1.into_iter().rev() {
                 body = FlatBlock::Let(x, Box::new(val), Box::new(body));
             }
-            FlatBlock::Let(x.clone(), Box::new(v), Box::new(body))
+            body
         }
         Expr::Block(vec) => {
             let mut blocks = vec![];
